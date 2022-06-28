@@ -1,0 +1,58 @@
+steps:
+#First Clone from Google Cloud Source Repository  
+- name: 'gcr.io/cloud-builders/git'
+  id: Clone the code from Source Repository
+  args: ['clone','https://source.developers.google.com/p/${_PROJECT}/r/${_REPO_NAME}']
+
+
+#Build the image 
+- name: 'gcr.io/cloud-builders/docker'
+  id: Build docker image
+  args: ['build','-t','gcr.io/${_PROJECT}/${_CONTAINERNAME}:${_VERSION}','.']
+
+#Push the image  
+- name: 'gcr.io/cloud-builders/docker'
+  id: Push image to Container Registry
+  args: ['push','gcr.io/${_PROJECT}/${_CONTAINERNAME}:${_VERSION}']
+  
+
+# Step 0: REPLACE variables in app.yaml file
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: Replace variables image version on kubernetes yaml
+  entrypoint: 'bash'
+#  dir: 'backend'
+  args:
+  - '-c'
+  - |
+    sed -i "s/GOOGLE_CLOUD_PROJECT/${_VERSION}/g" deployment-demogke.yml
+
+
+# This step deploys the new version of our container image
+# in the hello-cloudbuild Kubernetes Engine cluster.
+- name: 'gcr.io/cloud-builders/kubectl'
+  id: Deploy to GKE
+  args:
+  - 'apply'
+  - '-f'
+  - 'deployment-demogke.yml'
+  env:
+  - 'CLOUDSDK_COMPUTE_REGION=zone'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cluster_name'
+
+
+substitutions:
+    #GCP Specific configuration. Please DON'T change anything
+  _PROJECT: project_id
+  _ZONE: zone
+  _GKE_CLUSTER: cluster_name
+    
+    #Repository Specific configuration. DevOps can change this settings
+  _CONTAINERNAME: repo_name
+  _REPO_NAME: repo_name
+    
+    # Developers ONLY change
+  _VERSION: $COMMIT_SHA
+    #_VERSION: latest
+    
+options:
+    substitution_option: 'ALLOW_LOOSE'

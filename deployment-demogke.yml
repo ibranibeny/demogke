@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: storage-wp-pv
+spec:
+  capacity:
+    storage: 100G
+  accessModes:
+  - ReadWriteMany
+  storageClassName: "standard"
+  nfs:
+    path: /bibrani_storage
+    server: 10.76.50.2
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: storage-wp-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name:  php-wp-lab
+  namespace: default
+  labels:
+    app:  php-wp-lab
+spec:
+  selector:
+    matchLabels:
+      app: php-wp-lab
+  replicas: 4
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app:  php-wp-lab
+    spec:
+      # initContainers:
+        # Init containers are exactly like regular containers, except:
+          # - Init containers always run to completion.
+          # - Each init container must complete successfully before the next one starts.
+      containers:
+      - name:  php-wp-lab
+        image:  gcr.io/project_id/demogke:GOOGLE_CLOUD_PROJECT
+        volumeMounts:
+        - name: wp-content
+          mountPath: /var/www/web/wp-content
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+          periodSeconds: 10
+        ports:
+        - containerPort:  80
+          name:  php-wp-lab
+      restartPolicy: Always
+      volumes:
+      - name: wp-content
+        persistentVolumeClaim:
+          claimName: storage-wp-pvc
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-cert
+  namespace: default
+data:
+  tls.crt: >-
+    CRT
+  tls.key: >-
+    KEY
+type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-wp-lab
+  namespace: default
+spec:
+  selector:
+    app: php-wp-lab
+  type: NodePort
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demogke
+#  annotations: 
+#    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+      - demogke.berbagitulisan.com
+    secretName: my-cert
+  rules:
+  - host: demogke.berbagitulisan.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: php-wp-lab
+            port:
+              number: 443
